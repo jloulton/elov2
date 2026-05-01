@@ -732,28 +732,29 @@
 <script>
 // ============== DATA ==============
 const FIRST_NAMES = [
-  "Adele","Alice","April","Beatrix","Eleanor","Elizabeth","Elsbeth","Elspeth",
+  "Adele","April","Beatrix","Eleanor","Elizabeth","Elsbeth","Elspeth",
   "Emily","Evelyn","Grace","Imogen","Lucy","Lyra","Meredith","Sophie","Violet"
 ];
 
 const MIDDLE_NAMES = [
-  "Adele","Adelaide","Alice","April","Beatrix","Cecilia","Celia","Eleanor",
+  "Adele","Adelaide","April","Beatrix","Cecilia","Celia","Eleanor",
   "Elizabeth","Elsbeth","Elspeth","Emily","Evelyn","Grace","Imogen","Joy",
   "Lucy","Lyra","Meredith","Rose","Sabrina","Sophia","Sophie","Victoria",
   "Violet","Zelda","Zoe"
 ];
 
 const SURNAME = "Morton";
-const STORAGE_KEY = "morton_elo_v1";
+const STORAGE_KEY = "morton_elo_v2";
 const K_FACTOR = 32;
 const INITIAL_RATING = 1200;
 
-// Build all valid combinations (excluding first === middle)
+// Build all valid combinations (excluding first === middle, and alliterative pairs)
 function buildCombos() {
   const combos = [];
   for (const f of FIRST_NAMES) {
     for (const m of MIDDLE_NAMES) {
       if (f === m) continue;
+      if (f[0].toLowerCase() === m[0].toLowerCase()) continue; // no alliteration
       combos.push({ first: f, middle: m, id: `${f}|${m}` });
     }
   }
