@@ -181,8 +181,43 @@
     display: grid;
     grid-template-columns: 1fr auto 1fr;
     gap: 24px;
-    align-items: stretch;
+    align-items: start;
     margin-bottom: 32px;
+  }
+
+  .arena-col {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    align-items: stretch;
+  }
+
+  .btn-eliminate {
+    font-family: 'Inter', sans-serif;
+    font-size: 11px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    padding: 10px 16px;
+    background: transparent;
+    color: var(--rosehip-deep);
+    border: 1px dashed var(--rosehip);
+    cursor: pointer;
+    transition: all 0.15s ease;
+    text-align: center;
+    align-self: center;
+    border-radius: 0;
+  }
+
+  .btn-eliminate:hover {
+    background: var(--rosehip);
+    color: var(--vellum);
+    border-style: solid;
+    border-color: var(--rosehip-deep);
+  }
+
+  .btn-eliminate:active {
+    background: var(--rosehip-deep);
   }
 
   .specimen {
@@ -303,6 +338,8 @@
     font-style: italic;
     font-size: 22px;
     min-width: 60px;
+    /* Align with the card area (excluding the eliminate button below) */
+    min-height: 240px;
   }
 
   .versus svg {
@@ -519,6 +556,17 @@
     font-style: italic;
   }
 
+  .eliminated-list li {
+    text-decoration: line-through;
+    text-decoration-color: var(--rosehip);
+    color: var(--bark);
+    opacity: 0.65;
+  }
+
+  .eliminated-list li em {
+    color: var(--rosehip);
+  }
+
   .expand-toggle {
     text-align: center;
     margin: 24px 0;
@@ -626,7 +674,7 @@
     .app { padding: 32px 16px 60px; }
     .masthead h1 { font-size: 36px; }
     .arena { grid-template-columns: 1fr; gap: 16px; }
-    .versus { flex-direction: row; padding: 8px 0; min-width: 0; }
+    .versus { flex-direction: row; padding: 8px 0; min-width: 0; min-height: 0; }
     .versus svg { width: 80px; height: 24px; transform: rotate(90deg); }
     .specimen { padding: 28px 20px; min-height: auto; }
     .specimen .name-display { font-size: 26px; }
@@ -772,6 +820,7 @@ let state = {
   skips: {},          // id -> count
   shown: {},          // id -> times shown in a matchup
   pairsSeen: {},      // "id1::id2" (sorted) -> true
+  eliminated: {},     // id -> true (combo removed from active pool)
   totalMatches: 0,
   currentPair: null   // [comboA, comboB]
 };
@@ -792,6 +841,7 @@ function loadState() {
       if (!state.skips) state.skips = {};
       if (!state.shown) state.shown = {};
       if (!state.pairsSeen) state.pairsSeen = {};
+      if (!state.eliminated) state.eliminated = {};
       if (typeof state.totalMatches !== 'number') state.totalMatches = 0;
       state.currentPair = null; // always pick a fresh pair on load
     }
@@ -820,59 +870,62 @@ function pairKey(idA, idB) {
 
 // ============== PAIR SELECTION ==============
 function pickNextPair() {
-  // Phase 1: try to find an unseen pair
-  // We pick combos with the fewest "shown" counts to spread coverage,
-  // then pair them with another combo that hasn't faced them yet.
+  // Filter out eliminated combos from the active pool
+  const ACTIVE = ALL_COMBOS.filter(c => !state.eliminated[c.id]);
 
-  const totalPossiblePairs = (TOTAL_COMBOS * (TOTAL_COMBOS - 1)) / 2;
-  const seenPairCount = Object.keys(state.pairsSeen).length;
+  // Edge case: fewer than 2 active combos — no matchup possible
+  if (ACTIVE.length < 2) return null;
 
-  if (seenPairCount < totalPossiblePairs) {
-    // There's still at least one unseen pair somewhere
-    // Strategy: pick a combo with low "shown" count, then find an unseen partner
-    const sortedByShown = [...ALL_COMBOS].sort((a, b) => {
+  // Calculate total possible pairs among active combos only
+  const totalPossiblePairs = (ACTIVE.length * (ACTIVE.length - 1)) / 2;
+  // Count seen pairs that involve only active combos (eliminated combos may
+  // have left orphan pair entries, which we ignore)
+  let seenActivePairCount = 0;
+  for (const key in state.pairsSeen) {
+    const [idA, idB] = key.split('::');
+    if (!state.eliminated[idA] && !state.eliminated[idB]) {
+      seenActivePairCount++;
+    }
+  }
+
+  if (seenActivePairCount < totalPossiblePairs) {
+    // There's still at least one unseen pair among active combos
+    const sortedByShown = [...ACTIVE].sort((a, b) => {
       const sa = state.shown[a.id] || 0;
       const sb = state.shown[b.id] || 0;
       if (sa !== sb) return sa - sb;
       return Math.random() - 0.5;
     });
 
-    // Try the least-shown combos first as "anchor"
     for (const anchor of sortedByShown) {
-      // Find combos that haven't been paired with anchor
-      const candidates = ALL_COMBOS.filter(c => {
+      const candidates = ACTIVE.filter(c => {
         if (c.id === anchor.id) return false;
         return !state.pairsSeen[pairKey(anchor.id, c.id)];
       });
       if (candidates.length > 0) {
-        // Among candidates, prefer ones with low shown count too
         candidates.sort((a, b) => {
           const sa = state.shown[a.id] || 0;
           const sb = state.shown[b.id] || 0;
           if (sa !== sb) return sa - sb;
           return Math.random() - 0.5;
         });
-        // Pick from the lowest tier with a small randomization
         const minShown = state.shown[candidates[0].id] || 0;
         const lowestTier = candidates.filter(c => (state.shown[c.id] || 0) === minShown);
         const partner = lowestTier[Math.floor(Math.random() * lowestTier.length)];
-        // Randomize order on screen
         return Math.random() < 0.5 ? [anchor, partner] : [partner, anchor];
       }
     }
   }
 
-  // Phase 2: ELO-style — pair combos with similar ratings
-  // Pick a random combo, then find one with a similar rating that has been seen
-  const shuffled = [...ALL_COMBOS].sort(() => Math.random() - 0.5);
+  // Phase 2: ELO-style — pair combos with similar ratings (active only)
+  const shuffled = [...ACTIVE].sort(() => Math.random() - 0.5);
   for (const a of shuffled) {
     const ratingA = getRating(a.id);
-    const others = ALL_COMBOS
+    const others = ACTIVE
       .filter(c => c.id !== a.id)
       .map(c => ({ combo: c, diff: Math.abs(getRating(c.id) - ratingA) }))
       .sort((x, y) => x.diff - y.diff);
 
-    // Among the closest-rated, pick from the top 5 with some randomness
     if (others.length === 0) continue;
     const topPool = others.slice(0, 5);
     const chosen = topPool[Math.floor(Math.random() * topPool.length)].combo;
@@ -880,10 +933,12 @@ function pickNextPair() {
   }
 
   // Fallback (shouldn't happen)
-  const a = ALL_COMBOS[Math.floor(Math.random() * ALL_COMBOS.length)];
-  let b = ALL_COMBOS[Math.floor(Math.random() * ALL_COMBOS.length)];
+  const ACTIVE_FALLBACK = ALL_COMBOS.filter(c => !state.eliminated[c.id]);
+  if (ACTIVE_FALLBACK.length < 2) return null;
+  const a = ACTIVE_FALLBACK[Math.floor(Math.random() * ACTIVE_FALLBACK.length)];
+  let b = ACTIVE_FALLBACK[Math.floor(Math.random() * ACTIVE_FALLBACK.length)];
   while (b.id === a.id) {
-    b = ALL_COMBOS[Math.floor(Math.random() * ALL_COMBOS.length)];
+    b = ACTIVE_FALLBACK[Math.floor(Math.random() * ACTIVE_FALLBACK.length)];
   }
   return [a, b];
 }
@@ -939,6 +994,19 @@ function skip() {
   render();
 }
 
+function eliminate(index) {
+  // index 0 = left, 1 = right. Mark that combo as eliminated and pick a new pair.
+  // The other combo is unaffected — no rating change, no skip count, no pair counted as seen.
+  const combo = state.currentPair[index];
+  state.eliminated[combo.id] = true;
+  // Wipe the rating so it shows as null in exports; preserve win/loss history for context if needed,
+  // but per spec the export only shows "eliminated" status so these won't appear.
+  delete state.ratings[combo.id];
+  state.currentPair = pickNextPair();
+  saveState();
+  render();
+}
+
 function showRankings() {
   view = 'rankings';
   render();
@@ -953,7 +1021,7 @@ function returnToRanking() {
 function resetAll() {
   state = {
     ratings: {}, wins: {}, losses: {}, skips: {}, shown: {},
-    pairsSeen: {}, totalMatches: 0, currentPair: null
+    pairsSeen: {}, eliminated: {}, totalMatches: 0, currentPair: null
   };
   rankingsExpanded = false;
   saveState();
@@ -978,10 +1046,19 @@ function closeModal() {
 
 // ============== EXPORT ==============
 function exportToClipboard() {
-  // Build sorted list: seen first by rating desc, then unseen alphabetically
+  // Build sorted lists: seen (by rating desc), unseen (alphabetical), eliminated (alphabetical)
   const seen = [];
   const unseen = [];
+  const eliminatedRows = [];
   for (const c of ALL_COMBOS) {
+    if (state.eliminated[c.id]) {
+      eliminatedRows.push({
+        first: c.first,
+        middle: c.middle,
+        full: `${c.first} ${c.middle} ${SURNAME}`
+      });
+      continue;
+    }
     const wasShown = (state.shown[c.id] || 0) > 0;
     const row = {
       first: c.first,
@@ -997,10 +1074,12 @@ function exportToClipboard() {
     if (wasShown) seen.push(row); else unseen.push(row);
   }
   seen.sort((a, b) => b.rating - a.rating);
-  unseen.sort((a, b) => {
+  const alphaSort = (a, b) => {
     if (a.first !== b.first) return a.first.localeCompare(b.first);
     return a.middle.localeCompare(b.middle);
-  });
+  };
+  unseen.sort(alphaSort);
+  eliminatedRows.sort(alphaSort);
 
   const headers = ['Rank', 'First Name', 'Middle Name', 'Full Name', 'Rating', 'Wins', 'Losses', 'Skips', 'Times Shown'];
   const rows = [headers.join('\t')];
@@ -1011,6 +1090,10 @@ function exportToClipboard() {
   }
   for (const r of unseen) {
     rows.push(['—', r.first, r.middle, r.full, r.rating.toFixed(2), r.wins, r.losses, r.skips, r.shown].join('\t'));
+  }
+  for (const r of eliminatedRows) {
+    // Eliminated rows: only show name and "eliminated" status; other columns blank
+    rows.push(['eliminated', r.first, r.middle, r.full, '', '', '', '', ''].join('\t'));
   }
   const text = rows.join('\n');
 
@@ -1061,9 +1144,35 @@ function renderMatch(screen) {
   ensureCurrentPair();
   const [a, b] = state.currentPair;
 
+  // Guard: if pickNextPair returned null (too few active combos), show a message
+  if (!state.currentPair) {
+    const eliminatedCount = Object.keys(state.eliminated).length;
+    screen.innerHTML = `
+      <header class="masthead fade-in">
+        <div class="eyebrow">A study in pairings</div>
+        <h1>Morton <em>name sorting</em></h1>
+        <div class="latin">No more matchups available</div>
+      </header>
+
+      <div class="dialog-box-equivalent fade-in" style="background: var(--vellum); border: 1px solid var(--paper-deep); padding: 36px; text-align: center; box-shadow: 0 6px 12px var(--shadow); margin: 32px auto; max-width: 540px;">
+        <p style="font-family: 'Fraunces', serif; font-size: 22px; color: var(--moss-dark); margin-bottom: 12px;">The herbarium is empty.</p>
+        <p style="color: var(--bark); font-size: 16px; line-height: 1.6;">
+          ${eliminatedCount} combinations have been eliminated, leaving fewer than two active. View your rankings or reset to start again.
+        </p>
+      </div>
+
+      <div class="action-row fade-in">
+        <button class="btn primary" onclick="showRankings()">View rankings</button>
+        <button class="btn danger" onclick="openResetModal()">Reset all data</button>
+      </div>
+    `;
+    return;
+  }
+
   const seenPairs = Object.keys(state.pairsSeen).length;
   const totalPairs = (TOTAL_COMBOS * (TOTAL_COMBOS - 1)) / 2;
   const seenCombos = Object.keys(state.shown).filter(k => state.shown[k] > 0).length;
+  const eliminatedCount = Object.keys(state.eliminated).length;
 
   screen.innerHTML = `
     <header class="masthead fade-in">
@@ -1075,16 +1184,23 @@ function renderMatch(screen) {
     <div class="stats fade-in">
       <div class="stat"><span class="num">${state.totalMatches}</span><span>comparisons</span></div>
       <div class="stat-divider"></div>
-      <div class="stat"><span class="num">${seenCombos}</span><span>of ${TOTAL_COMBOS} combos seen</span></div>
-      <div class="stat-divider"></div>
-      <div class="stat"><span class="num">${seenPairs}</span><span>of ${totalPairs} pairs</span></div>
+      <div class="stat"><span class="num">${seenCombos}</span><span>of ${TOTAL_COMBOS - eliminatedCount} combos seen</span></div>
+      ${eliminatedCount > 0 ? `
+        <div class="stat-divider"></div>
+        <div class="stat"><span class="num">${eliminatedCount}</span><span>eliminated</span></div>
+      ` : ''}
     </div>
 
     <div class="arena fade-in">
-      <div class="specimen" onclick="pick(0)">
-        <div class="label">Option I</div>
-        <div class="name-display">${comboHtml(a)}</div>
-        <div class="pick-cta">↑ Choose this one ↑</div>
+      <div class="arena-col">
+        <div class="specimen" onclick="pick(0)">
+          <div class="label">Option I</div>
+          <div class="name-display">${comboHtml(a)}</div>
+          <div class="pick-cta">↑ Choose this one ↑</div>
+        </div>
+        <button class="btn-eliminate" onclick="eliminate(0)" title="Remove this combination from ranking">
+          ✕ Eliminate
+        </button>
       </div>
 
       <div class="versus">
@@ -1095,10 +1211,15 @@ function renderMatch(screen) {
         </svg>
       </div>
 
-      <div class="specimen" onclick="pick(1)">
-        <div class="label">Option II</div>
-        <div class="name-display">${comboHtml(b)}</div>
-        <div class="pick-cta">↑ Choose this one ↑</div>
+      <div class="arena-col">
+        <div class="specimen" onclick="pick(1)">
+          <div class="label">Option II</div>
+          <div class="name-display">${comboHtml(b)}</div>
+          <div class="pick-cta">↑ Choose this one ↑</div>
+        </div>
+        <button class="btn-eliminate" onclick="eliminate(1)" title="Remove this combination from ranking">
+          ✕ Eliminate
+        </button>
       </div>
     </div>
 
@@ -1116,21 +1237,26 @@ function renderMatch(screen) {
 }
 
 function renderRankings(screen) {
-  // Build sorted lists
+  // Build sorted lists; eliminated combos go in their own bucket
   const seen = [];
   const unseen = [];
+  const eliminatedList = [];
   for (const c of ALL_COMBOS) {
-    if ((state.shown[c.id] || 0) > 0) {
+    if (state.eliminated[c.id]) {
+      eliminatedList.push(c);
+    } else if ((state.shown[c.id] || 0) > 0) {
       seen.push(c);
     } else {
       unseen.push(c);
     }
   }
   seen.sort((a, b) => getRating(b.id) - getRating(a.id));
-  unseen.sort((a, b) => {
+  const alphaSort = (a, b) => {
     if (a.first !== b.first) return a.first.localeCompare(b.first);
     return a.middle.localeCompare(b.middle);
-  });
+  };
+  unseen.sort(alphaSort);
+  eliminatedList.sort(alphaSort);
 
   const top10 = seen.slice(0, 10);
   const restSeen = seen.slice(10);
@@ -1177,13 +1303,23 @@ function renderRankings(screen) {
         </div>
       `;
     }
+    if (eliminatedList.length > 0) {
+      expandedHtml += `
+        <div class="ranking-section">
+          <div class="section-heading"><span>Eliminated</span><span>${eliminatedList.length} combinations</span></div>
+          <ul class="unseen-list eliminated-list">
+            ${eliminatedList.map(c => `<li>${c.first} <em>${c.middle}</em></li>`).join('')}
+          </ul>
+        </div>
+      `;
+    }
   }
 
   screen.innerHTML = `
     <header class="masthead fade-in">
       <div class="eyebrow">Current standings</div>
       <h1>The <em>top ten</em></h1>
-      <div class="latin">${state.totalMatches} comparisons made · ${seen.length} of ${TOTAL_COMBOS} combinations rated</div>
+      <div class="latin">${state.totalMatches} comparisons made · ${seen.length} of ${TOTAL_COMBOS - eliminatedList.length} active combinations rated${eliminatedList.length > 0 ? ` · ${eliminatedList.length} eliminated` : ''}</div>
     </header>
 
     <div class="ranking-section fade-in">
