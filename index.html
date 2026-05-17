@@ -780,63 +780,24 @@
 <script>
 // ============== DATA ==============
 const FIRST_NAMES = [
-  "Adele","April","Beatrix","Eleanor","Elizabeth","Elsbeth","Elspeth",
-  "Emily","Evelyn","Grace","Imogen","Lucy","Lyra","Meredith","Sophie","Violet"
+  "Beatrix","Elizabeth","Emily","Sophie","Grace","Imogen","Lucy","Meredith"
 ];
 
 const MIDDLE_NAMES = [
-  "Adele","Adelaide","April","Beatrix","Cecilia","Celia","Eleanor",
-  "Elizabeth","Elsbeth","Elspeth","Emily","Evelyn","Grace","Imogen","Joy",
-  "Lucy","Lyra","Meredith","Rose","Sabrina","Sophia","Sophie","Victoria",
-  "Violet","Zelda"
+  "Grace","Joy","Elizabeth","Meredith","Adelaide","Rose"
 ];
 
 const SURNAME = "Morton";
-const STORAGE_KEY = "morton_elo_v3";
+const STORAGE_KEY = "morton_elo_v4";
 const K_FACTOR = 32;
 const INITIAL_RATING = 1200;
 
-// Phonetic groupings — names that share starting sound or ending sound
-// even if their letters differ
-const START_SOUND_GROUPS = {
-  // Soft-C names that sound like S
-  "Cecilia": "S",
-  "Celia": "S"
-};
-
-const END_SOUND_GROUPS = {
-  // /i/ "ee" ending
-  "Emily": "ee", "Sophie": "ee", "Lucy": "ee",
-  // /ə/ "uh" ending
-  "Sophia": "uh", "Sabrina": "uh", "Victoria": "uh",
-  "Celia": "uh", "Cecilia": "uh", "Lyra": "uh",
-  // /θ/ "th" ending
-  "Meredith": "th", "Elizabeth": "th", "Elsbeth": "th", "Elspeth": "th"
-};
-
-const VOWELS = new Set(['A', 'E', 'I', 'O', 'U']);
-
-function startSound(name) {
-  return START_SOUND_GROUPS[name] || name[0].toUpperCase();
-}
-
-function endSound(name) {
-  return END_SOUND_GROUPS[name] || name; // names not in any group are unique
-}
-
-// Build all valid combinations
+// Build all valid combinations — only rule is no duplicates (e.g. Grace Grace)
 function buildCombos() {
   const combos = [];
   for (const f of FIRST_NAMES) {
     for (const m of MIDDLE_NAMES) {
-      // Same name
       if (f === m) continue;
-      // Both start with a vowel
-      if (VOWELS.has(f[0].toUpperCase()) && VOWELS.has(m[0].toUpperCase())) continue;
-      // Same starting sound (covers alliteration + soft-C grouping)
-      if (startSound(f) === startSound(m)) continue;
-      // Same ending sound
-      if (endSound(f) === endSound(m)) continue;
       combos.push({ first: f, middle: m, id: `${f}|${m}` });
     }
   }
